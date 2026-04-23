@@ -1,40 +1,28 @@
-#include "config.h"
+#include "./config/config.h"
+#include "webserver.h"
+#include "./handler/health_handler.h"
 
 int main(int argc, char *argv[])
 {
-    //需要修改的数据库信息,登录名,密码,库名
-    string user = "root";
-    string passwd = "root";
-    string databasename = "qgydb";
-
-    //命令行解析
     Config config;
-    config.parse_arg(argc, argv);
+
+    std::string config_path = "config/config.yaml";
+    if (argc > 1)
+        config_path = argv[1];
+
+    if (!config.load(config_path))
+        fprintf(stderr, "Config load failed, using defaults\n");
+
+    register_health_routes();
 
     WebServer server;
+    server.init(config);
 
-    //初始化
-    server.init(config.PORT, user, passwd, databasename, config.LOGWrite, 
-                config.OPT_LINGER, config.TRIGMode,  config.sql_num,  config.thread_num, 
-                config.close_log, config.actor_model);
-    
-
-    //日志
     server.log_write();
-
-    //数据库
     server.sql_pool();
-
-    //线程池
     server.thread_pool();
-
-    //触发模式
     server.trig_mode();
-
-    //监听
     server.eventListen();
-
-    //运行
     server.eventLoop();
 
     return 0;

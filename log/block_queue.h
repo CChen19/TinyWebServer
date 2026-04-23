@@ -1,5 +1,5 @@
 /*************************************************************
-*循环数组实现的阻塞队列，m_back = (m_back + 1) % m_max_size;  
+*循环数组实现的阻塞队列，m_back = (m_back + 1) % m_max_size;
 *线程安全，每个操作前都要先加互斥锁，操作完后，再解锁
 **************************************************************/
 
@@ -49,7 +49,7 @@ public:
         m_mutex.unlock();
     }
     //判断队列是否满了
-    bool full() 
+    bool full()
     {
         m_mutex.lock();
         if (m_size >= m_max_size)
@@ -62,7 +62,7 @@ public:
         return false;
     }
     //判断队列是否为空
-    bool empty() 
+    bool empty()
     {
         m_mutex.lock();
         if (0 == m_size)
@@ -74,7 +74,7 @@ public:
         return false;
     }
     //返回队首元素
-    bool front(T &value) 
+    bool front(T &value)
     {
         m_mutex.lock();
         if (0 == m_size)
@@ -87,7 +87,7 @@ public:
         return true;
     }
     //返回队尾元素
-    bool back(T &value) 
+    bool back(T &value)
     {
         m_mutex.lock();
         if (0 == m_size)
@@ -100,7 +100,7 @@ public:
         return true;
     }
 
-    int size() 
+    int size()
     {
         int tmp = 0;
 
@@ -152,7 +152,7 @@ public:
         m_mutex.lock();
         while (m_size <= 0)
         {
-            
+
             if (!m_cond.wait(m_mutex.get()))
             {
                 m_mutex.unlock();
@@ -199,14 +199,14 @@ public:
     }
 
 private:
-    locker m_mutex;
-    cond m_cond;
+    locker m_mutex;    // 互斥锁，保护所有成员变量的并发访问，每次读写队列前都需加锁
+    cond m_cond;       // 条件变量，用于 push/pop 之间的等待与唤醒：队列为空时 pop 等待，push 后广播唤醒
 
-    T *m_array;
-    int m_size;
-    int m_max_size;
-    int m_front;
-    int m_back;
+    T *m_array;        // 循环数组，存储队列中的元素，大小固定为 m_max_size
+    int m_size;        // 当前队列中的元素个数
+    int m_max_size;    // 队列容量上限，构造时指定，不可扩容
+    int m_front;       // 队头指针，指向最早入队元素的位置，初始为 -1，取元素时先 +1 再读
+    int m_back;        // 队尾指针，指向最新入队元素的位置，初始为 -1，存元素时先 +1 再写
 };
 
 #endif

@@ -1,0 +1,20 @@
+# TinyWebServer Configuration
+server:
+  port: 9006
+  thread_num: 8
+  trig_mode: 0          # 0=LT+LT, 1=LT+ET, 2=ET+LT, 3=ET+ET
+  opt_linger: false
+  actor_model: 0        # 0=proactor, 1=reactor
+
+log:
+  enabled: true
+  async: false
+  path: "./logs/server.log"
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "root"
+  database: "shorturl"
+  pool_size: 8

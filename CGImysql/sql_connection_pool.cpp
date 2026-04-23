@@ -39,15 +39,15 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 
 		if (con == NULL)
 		{
-			LOG_ERROR("MySQL Error");
-			exit(1);
+			LOG_ERROR("MySQL init error, skipping remaining connections");
+			break;
 		}
 		con = mysql_real_connect(con, url.c_str(), User.c_str(), PassWord.c_str(), DBName.c_str(), Port, NULL, 0);
 
 		if (con == NULL)
 		{
-			LOG_ERROR("MySQL Error");
-			exit(1);
+			LOG_ERROR("MySQL connect failed (pool will run with %d/%d connections)", m_FreeConn, MaxConn);
+			break;
 		}
 		connList.push_back(con);
 		++m_FreeConn;
@@ -132,12 +132,16 @@ connection_pool::~connection_pool()
 }
 
 connectionRAII::connectionRAII(MYSQL **SQL, connection_pool *connPool){
-	*SQL = connPool->GetConnection();
-	
+	if (connPool) {
+		*SQL = connPool->GetConnection();
+	} else {
+		*SQL = NULL;
+	}
 	conRAII = *SQL;
 	poolRAII = connPool;
 }
 
 connectionRAII::~connectionRAII(){
-	poolRAII->ReleaseConnection(conRAII);
+	if (poolRAII)
+		poolRAII->ReleaseConnection(conRAII);
 }

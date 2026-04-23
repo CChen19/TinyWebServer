@@ -1,0 +1,9 @@
+build/
+.cache/
+.clangd
+.vscode/
+*.o
+server
+compile_commands.json
+*_ServerLog
+my_server/
