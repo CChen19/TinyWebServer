@@ -9,29 +9,13 @@ It keeps the original epoll-based networking core and rebuilds the application l
 ```mermaid
 flowchart LR
     Client["Client"] --> Server["C++ epoll HTTP Server"]
-    Server --> Router["REST Router"]
-
-    Router -- "POST /api/shorten" --> Shorten["Shorten Handler"]
-    Shorten --> CodeGen["Snowflake + Base62"]
-    CodeGen --> ShardRouter["Shard Router"]
-    ShardRouter --> UrlShards["MySQL URL Shards"]
-    Shorten --> Redis["Redis Cache"]
-
-    Router -- "GET /:code" --> Redirect["Redirect Handler"]
-    Redirect --> Bloom["Bloom Filter"]
-    Bloom --> Redis
-    Redis -- "miss" --> Singleflight["Singleflight Rebuild"]
-    Singleflight --> ShardRouter
-    Redirect -- "302" --> Client
-    Redirect --> Producer["Kafka Producer"]
-
-    Producer --> Kafka["Kafka Click Topic"]
-    Kafka --> Consumer["Python Click Consumer"]
+    Server --> Redis["Redis Cache"]
+    Server --> Shards["MySQL URL Shards"]
+    Server --> Kafka["Kafka Click Topic"]
+    Kafka --> Consumer["Click Consumer"]
     Consumer --> ClickDB["MySQL Click Events"]
-
-    Server --> Metrics["/metrics"]
-    Consumer --> LagMetrics["Consumer /metrics"]
-    Server --> Logs["JSONL Access Logs"]
+    Server --> Obs["Metrics and Logs"]
+    Consumer --> Obs
 ```
 
 ## What It Covers
