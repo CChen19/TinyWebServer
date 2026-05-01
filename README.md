@@ -1,50 +1,70 @@
-TinyWebServer Short URL
-=======================
+# TinyWebServer Short URL
 
-基于 [qinguoyi/TinyWebServer](https://github.com/qinguoyi/TinyWebServer) 演进的 C++ 短链服务。项目保留原来的线程池、非阻塞 socket、epoll、Reactor/Proactor 网络模型，在业务层重构为 RESTful 短链系统。
+A production-style C++ short URL service evolved from the classic TinyWebServer project.
 
-## 能力概览
+It keeps the original epoll-based networking core and rebuilds the application layer around REST APIs, Redis caching, Kafka click events, sharded MySQL storage, Prometheus metrics, and structured logs.
 
-- `POST /api/shorten`：创建短链
-- `GET /{code}`：302 跳转
-- Redis Cache-Aside：Bloom Filter 防穿透、singleflight 防击穿、TTL jitter 防雪崩
-- Kafka 点击事件异步化：跳转主链路只投递事件，不同步写点击表
-- 自研薄分片路由：`short_code` hash 到 `4 库 x 4 表`
-- Prometheus 指标：QPS、延迟直方图、缓存命中率、Kafka producer、consumer lag
-- JSONL 结构化访问日志
+## Architecture
 
-## 架构
+```mermaid
+flowchart LR
+    Client[Client] --> Server[C++ epoll HTTP Server]
+    Server --> Router[REST Router]
 
-```text
-client
-  -> C++ epoll HTTP server
-  -> Router
-      POST /api/shorten -> Snowflake -> Base62 -> ShardRouter -> MySQL shard -> Redis
-      GET /{code}       -> Bloom Filter -> Redis -> MySQL shard -> Kafka click topic
+    Router -->|POST /api/shorten| Shorten[Shorten Handler]
+    Shorten --> Snowflake[Snowflake ID]
+    Snowflake --> Base62[Base62 Code]
+    Base62 --> ShardRouter[Shard Router]
+    ShardRouter --> Shards[(MySQL Shards<br/>4 DB x 4 Tables)]
+    Shorten --> Redis[(Redis Cache)]
+    Shorten --> Metrics[Prometheus Metrics]
 
-consumer/click_consumer.py
-  -> Kafka shorturl.clicks
-  -> MySQL click_event
-  -> /metrics exposes Kafka lag
+    Router -->|GET /{code}| Redirect[Redirect Handler]
+    Redirect --> Bloom[Bloom Filter]
+    Bloom --> Redis
+    Redis -->|hit| Redirect
+    Redis -->|miss| SingleFlight[Singleflight Rebuild]
+    SingleFlight --> ShardRouter
+    Redirect -->|302| Client
+    Redirect --> Producer[Kafka Producer]
+
+    Producer --> Kafka[(Kafka<br/>shorturl.clicks)]
+    Kafka --> Consumer[Python Click Consumer]
+    Consumer --> ClickDB[(MySQL click_event)]
+    Consumer --> LagMetrics[Consumer /metrics<br/>Kafka Lag]
+
+    Server --> AccessLog[JSONL Access Log]
+    Server --> Metrics
 ```
 
-## 项目结构
+## Features
+
+- `POST /api/shorten` creates short URLs.
+- `GET /{code}` returns a `302` redirect.
+- Snowflake ID to Base62 short code generation.
+- Redis Cache-Aside with Bloom Filter, singleflight rebuild, and TTL jitter.
+- Kafka async click pipeline with idempotent consumer writes.
+- Thin C++ sharding router over MySQL: `short_code` hash to `4 DB x 4 tables`.
+- Prometheus metrics for QPS, latency, cache hit ratio, Kafka publish status, and consumer lag.
+- JSONL structured access logs.
+
+## Repository Layout
 
 ```text
 analytics/       Kafka click producer
-consumer/        独立点击事件 consumer
-handler/         /health、/metrics、短链接口
-http/            请求解析、响应构造、路由
-observability/   Prometheus 指标和 JSONL access log
-shorturl/        Base62、Snowflake、Redis cache、分片路由、Repository
-sql/             MySQL 初始化脚本
-docs/            各阶段设计与验证记录
-config/          YAML 配置
+consumer/        Python click consumer with Kafka lag metrics
+handler/         /health, /metrics, and short URL handlers
+http/            HTTP parsing, routing, and response serialization
+observability/   Prometheus metrics registry and structured access logs
+shorturl/        Base62, Snowflake, Redis cache, sharding router, repository
+sql/             MySQL schema and sharding initialization scripts
+docs/            Chinese phase-by-phase design notes and validation records
+config/          YAML configuration
 ```
 
-## 依赖
+## Quick Start
 
-Ubuntu/WSL:
+Install dependencies on Ubuntu/WSL:
 
 ```bash
 sudo apt install -y \
@@ -53,7 +73,7 @@ sudo apt install -y \
   python3-confluent-kafka python3-mysql.connector
 ```
 
-`redis-plus-plus` 需要源码安装：
+Install `redis-plus-plus`:
 
 ```bash
 cd /tmp
@@ -66,9 +86,7 @@ sudo make install
 sudo ldconfig
 ```
 
-## 初始化
-
-### MySQL
+Initialize MySQL:
 
 ```bash
 sudo service mysql start
@@ -87,16 +105,14 @@ mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/002_click_event.sql
 sudo mysql < sql/003_sharded_short_url.sql
 ```
 
-项目命令统一使用 `127.0.0.1`，避免 MySQL client 默认走本地 socket 时遇到权限问题。
-
-### Redis
+Start Redis:
 
 ```bash
 sudo service redis-server start
 redis-cli ping
 ```
 
-### Kafka
+Start local Kafka:
 
 ```bash
 docker run -d --name tinywebserver-kafka -p 9092:9092 \
@@ -121,7 +137,7 @@ docker exec tinywebserver-kafka /opt/kafka/bin/kafka-topics.sh \
   --replication-factor 1
 ```
 
-## 构建运行
+Build and run:
 
 ```bash
 cmake -S . -B build-linux -DCMAKE_CXX_COMPILER=/usr/bin/g++
@@ -130,52 +146,67 @@ cmake --build build-linux
 ./build-linux/server config/config.yaml
 ```
 
-点击事件 consumer：
+Run the click consumer:
 
 ```bash
 python3 consumer/click_consumer.py
 ```
 
-consumer 默认在 `127.0.0.1:9108/metrics` 暴露 Kafka lag 指标。
+## API
 
-## 验证
+Health check:
 
 ```bash
 curl http://127.0.0.1:9006/health
+```
 
+Create a short URL:
+
+```bash
 curl -X POST http://127.0.0.1:9006/api/shorten \
   -H 'Content-Type: application/json' \
   -d '{"long_url":"https://example.com"}'
+```
 
+Redirect:
+
+```bash
 curl -i http://127.0.0.1:9006/<short_code>
+```
 
+Metrics:
+
+```bash
 curl http://127.0.0.1:9006/metrics
 curl http://127.0.0.1:9108/metrics
+```
+
+Access logs:
+
+```bash
 tail -f logs/access.jsonl
 ```
 
-## 指标
+## Key Metrics
 
-核心 Prometheus 指标：
+- `shorturl_http_requests_total`: HTTP request count for QPS.
+- `shorturl_http_request_duration_seconds_bucket`: latency histogram for P99.
+- `shorturl_cache_requests_total`: Redis hit, miss, filtered, and unavailable counts.
+- `shorturl_kafka_publish_total`: Kafka producer success and failure counts.
+- `shorturl_kafka_consumer_lag`: click consumer lag.
 
-- `shorturl_http_requests_total`：QPS 用 `rate(...[1m])`
-- `shorturl_http_request_duration_seconds_bucket`：P99 用 `histogram_quantile(0.99, rate(..._bucket[5m]))`
-- `shorturl_cache_requests_total{result="hit|miss|filtered|unavailable"}`：缓存命中率
-- `shorturl_kafka_publish_total{result="success|failure"}`：producer 投递情况
-- `shorturl_kafka_consumer_lag`：consumer lag
+## Documentation
 
-更完整的可观测性说明见 [docs/phase5_observability.md](docs/phase5_observability.md)。
+The detailed phase documents are intentionally kept in Chinese:
 
-## 阶段文档
+- [Phase 1: single-node short URL and baseline benchmark](docs/phase1_baseline.md)
+- [Phase 2: Redis cache consistency](docs/phase2_cache_consistency.md)
+- [Phase 3: Kafka reliable delivery](docs/phase3_kafka_delivery.md)
+- [Phase 4: MySQL sharding](docs/phase4_sharding.md)
+- [Phase 5: observability](docs/phase5_observability.md)
 
-- [Phase 1 单机短链与基准压测](docs/phase1_baseline.md)
-- [Phase 2 Redis 缓存一致性](docs/phase2_cache_consistency.md)
-- [Phase 3 Kafka 可靠投递](docs/phase3_kafka_delivery.md)
-- [Phase 4 分库分表水平扩展](docs/phase4_sharding.md)
-- [Phase 5 可观测性](docs/phase5_observability.md)
+## Credits
 
-## 致谢
+Original project: [qinguoyi/TinyWebServer](https://github.com/qinguoyi/TinyWebServer)
 
-原项目：[qinguoyi/TinyWebServer](https://github.com/qinguoyi/TinyWebServer)
-
-参考：《Linux高性能服务器编程》，游双著。
+Reference: *Linux High Performance Server Programming*, You Shuang.
