@@ -3,7 +3,9 @@
 #include "./CGImysql/sql_connection_pool.h"
 #include "./analytics/click_event_producer.h"
 #include "./handler/health_handler.h"
+#include "./handler/metrics_handler.h"
 #include "./handler/short_url_handler.h"
+#include "./observability/structured_logger.h"
 #include "./shorturl/short_url_cache.h"
 #include "./shorturl/shard_router.h"
 
@@ -19,9 +21,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Config load failed, using defaults\n");
 
     ShardRouter::instance().init(config);
+    StructuredLogger::instance().init(config);
     ShortUrlCache::instance().init(config);
     ClickEventProducer::instance().init(config);
     register_health_routes();
+    register_metrics_routes();
     register_short_url_routes();
 
     WebServer server;

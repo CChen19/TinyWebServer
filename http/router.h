@@ -24,6 +24,7 @@ public:
 private:
     struct Route {
         std::string method;
+        std::string pattern;
         std::vector<std::string> segments;   // ["api", "stats", "{code}"]
         HandlerFunc handler;
     };

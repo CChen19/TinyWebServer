@@ -19,6 +19,7 @@ static std::vector<std::string> split_path(const std::string& path) {
 void Router::get(const std::string& pattern, HandlerFunc h) {
     Route r;
     r.method = "GET";
+    r.pattern = pattern;
     r.segments = split_path(pattern);
     r.handler = std::move(h);
     routes_.push_back(std::move(r));
@@ -27,6 +28,7 @@ void Router::get(const std::string& pattern, HandlerFunc h) {
 void Router::post(const std::string& pattern, HandlerFunc h) {
     Route r;
     r.method = "POST";
+    r.pattern = pattern;
     r.segments = split_path(pattern);
     r.handler = std::move(h);
     routes_.push_back(std::move(r));
@@ -37,6 +39,7 @@ bool Router::dispatch(HttpRequest& req, HttpResponse& resp) {
         std::unordered_map<std::string, std::string> params;
         if (match(route, req, params)) {
             req.params = std::move(params);
+            req.route_pattern = route.pattern;
             route.handler(req, resp);
             return true;
         }

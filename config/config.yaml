@@ -45,3 +45,7 @@ sharding:
   table_prefix: "short_url_"
   database_count: 4
   table_count: 4
+
+observability:
+  structured_log_enabled: true
+  structured_log_path: "./logs/access.jsonl"

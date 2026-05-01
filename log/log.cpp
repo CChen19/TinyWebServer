@@ -44,17 +44,19 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
 
  
     const char *p = strrchr(file_name, '/');
-    char log_full_name[256] = {0};
+    char log_full_name[512] = {0};
 
     if (p == NULL)
     {
-        snprintf(log_full_name, 255, "%d_%02d_%02d_%s", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, file_name);
+        snprintf(log_full_name, sizeof(log_full_name), "%d_%02d_%02d_%s",
+                 my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, file_name);
     }
     else
     {
         strcpy(log_name, p + 1);
         strncpy(dir_name, file_name, p - file_name + 1);
-        snprintf(log_full_name, 255, "%s%d_%02d_%02d_%s", dir_name, my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, log_name);
+        snprintf(log_full_name, sizeof(log_full_name), "%s%d_%02d_%02d_%s",
+                 dir_name, my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, log_name);
     }
 
     m_today = my_tm.tm_mday;
@@ -101,7 +103,7 @@ void Log::write_log(int level, const char *format, ...)
     if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) //everyday log
     {
         
-        char new_log[256] = {0};
+        char new_log[512] = {0};
         fflush(m_fp);
         fclose(m_fp);
         char tail[16] = {0};
@@ -110,13 +112,14 @@ void Log::write_log(int level, const char *format, ...)
        
         if (m_today != my_tm.tm_mday)
         {
-            snprintf(new_log, 255, "%s%s%s", dir_name, tail, log_name);
+            snprintf(new_log, sizeof(new_log), "%s%s%s", dir_name, tail, log_name);
             m_today = my_tm.tm_mday;
             m_count = 0;
         }
         else
         {
-            snprintf(new_log, 255, "%s%s%s.%lld", dir_name, tail, log_name, m_count / m_split_lines);
+            snprintf(new_log, sizeof(new_log), "%s%s%s.%lld",
+                     dir_name, tail, log_name, m_count / m_split_lines);
         }
         m_fp = fopen(new_log, "a");
     }

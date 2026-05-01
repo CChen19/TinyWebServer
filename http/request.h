@@ -9,6 +9,7 @@ struct HttpRequest {
     std::string method;        // "GET" / "POST"
     std::string path;          // "/api/shorten"
     std::string query;         // "?foo=bar"
+    std::string route_pattern; // 匹配后的低基数路由，比如 "/{code}"
     std::unordered_map<std::string, std::string> headers;
     std::string body;          // 原始 body，JSON 留给 Handler 自己解
     
@@ -17,6 +18,11 @@ struct HttpRequest {
 
     // 当前请求绑定的 MySQL 连接，由 http_conn 在线程池中注入。
     MYSQL* mysql = nullptr;
+
+    std::string header_or_empty(const std::string& name) const {
+        auto it = headers.find(name);
+        return it == headers.end() ? "" : it->second;
+    }
 };
 
 #endif

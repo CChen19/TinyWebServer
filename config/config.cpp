@@ -17,6 +17,7 @@ Config::Config()
       sharding_enabled(true), shard_database_prefix("shorturl_"),
       shard_table_prefix("short_url_"), shard_database_count(4),
       shard_table_count(4),
+      structured_log_enabled(true), structured_log_path("./logs/access.jsonl"),
       close_log(0)
 {}
 
@@ -87,6 +88,16 @@ bool Config::load(const std::string& path)
             if (sh["table_prefix"])    shard_table_prefix    = sh["table_prefix"].as<std::string>();
             if (sh["database_count"])  shard_database_count  = sh["database_count"].as<int>();
             if (sh["table_count"])     shard_table_count     = sh["table_count"].as<int>();
+        }
+
+        if (cfg["observability"]) {
+            auto obs = cfg["observability"];
+            if (obs["structured_log_enabled"]) {
+                structured_log_enabled = obs["structured_log_enabled"].as<bool>();
+            }
+            if (obs["structured_log_path"]) {
+                structured_log_path = obs["structured_log_path"].as<std::string>();
+            }
         }
 
         return true;

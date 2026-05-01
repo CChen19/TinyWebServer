@@ -1,4 +1,5 @@
 #include "click_event_producer.h"
+#include "../observability/metrics_registry.h"
 #include "../shorturl/base62.h"
 #include "../shorturl/snowflake.h"
 #include <nlohmann/json.hpp>
@@ -82,6 +83,7 @@ bool ClickEventProducer::publish_click(const HttpRequest& req,
     if (!available_ || !producer_) {
         if (error) *error = "kafka producer unavailable";
         fprintf(stderr, "Kafka producer unavailable for click code=%s\n", code.c_str());
+        MetricsRegistry::instance().observe_kafka_publish(false);
         return false;
     }
 
@@ -100,14 +102,17 @@ bool ClickEventProducer::publish_click(const HttpRequest& req,
         if (error) *error = rd_kafka_err2str(err);
         fprintf(stderr, "Kafka produce error for click code=%s: %s\n",
                 code.c_str(), rd_kafka_err2str(err));
+        MetricsRegistry::instance().observe_kafka_publish(false);
         return false;
     }
     rd_kafka_poll(producer_, 10);
+    MetricsRegistry::instance().observe_kafka_publish(true);
     return true;
 #else
     (void)req;
     (void)code;
     if (error) *error = "librdkafka not linked";
+    MetricsRegistry::instance().observe_kafka_publish(false);
     return false;
 #endif
 }

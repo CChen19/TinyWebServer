@@ -1,5 +1,6 @@
 #include "short_url_cache.h"
 #include "short_url_repository.h"
+#include "../observability/metrics_registry.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -113,36 +114,43 @@ ShortUrlCache::CacheStatus
 ShortUrlCache::get(const std::string& code, std::string* long_url,
                    std::string* error) {
     if (bloom_ready_ && !bloom_.might_contain(code)) {
+        MetricsRegistry::instance().observe_cache_result("filtered");
         return CacheStatus::Filtered;
     }
 
     if (!enabled_) {
+        MetricsRegistry::instance().observe_cache_result("unavailable");
         return CacheStatus::Unavailable;
     }
 
 #ifdef HAVE_REDIS_PLUS_PLUS
     std::lock_guard<std::mutex> guard(mutex_);
     if (!redis_available_ || !redis_) {
+        MetricsRegistry::instance().observe_cache_result("unavailable");
         return CacheStatus::Unavailable;
     }
 
     try {
         auto value = redis_->get(cache_key(code));
         if (!value) {
+            MetricsRegistry::instance().observe_cache_result("miss");
             return CacheStatus::Miss;
         }
         if (long_url) {
             *long_url = *value;
         }
+        MetricsRegistry::instance().observe_cache_result("hit");
         return CacheStatus::Hit;
     } catch (const sw::redis::Error& e) {
         redis_available_ = false;
         if (error) *error = e.what();
+        MetricsRegistry::instance().observe_cache_result("unavailable");
         return CacheStatus::Unavailable;
     }
 #else
     (void)long_url;
     (void)error;
+    MetricsRegistry::instance().observe_cache_result("unavailable");
     return CacheStatus::Unavailable;
 #endif
 }

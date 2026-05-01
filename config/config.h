@@ -49,6 +49,9 @@ public:
     int shard_database_count;
     int shard_table_count;
 
+    bool structured_log_enabled;
+    std::string structured_log_path;
+
     int close_log;
 };
 

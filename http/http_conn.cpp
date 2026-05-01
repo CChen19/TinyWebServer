@@ -1,6 +1,9 @@
 #include "http_conn.h"
 #include "router.h"
+#include "../observability/metrics_registry.h"
+#include "../observability/structured_logger.h"
 #include <nlohmann/json.hpp>
+#include <chrono>
 
 int setnonblocking(int fd)
 {
@@ -396,6 +399,7 @@ bool http_conn::write()
 
 void http_conn::process()
 {
+    const auto started_at = std::chrono::steady_clock::now();
     HTTP_CODE read_ret = process_read();
     if (read_ret == NO_REQUEST)
     {
@@ -420,12 +424,30 @@ void http_conn::process()
         m_request.mysql = mysql;
         if (!Router::instance().dispatch(m_request, resp))
         {
+            m_request.route_pattern = "unmatched";
             resp.set_status(404);
             resp.set_json({{"error", "not found"}, {"path", m_request.path}});
         }
     }
 
     resp.set_header("Connection", m_linger ? "keep-alive" : "close");
+
+    const auto finished_at = std::chrono::steady_clock::now();
+    const double duration_seconds = std::chrono::duration<double>(
+        finished_at - started_at).count();
+    const std::string route = m_request.route_pattern.empty()
+        ? "parse_error"
+        : m_request.route_pattern;
+    MetricsRegistry::instance().observe_http_request(
+        m_request.method.empty() ? "UNKNOWN" : m_request.method,
+        route,
+        resp.status_code(),
+        duration_seconds);
+    StructuredLogger::instance().log_access(
+        m_request,
+        resp.status_code(),
+        duration_seconds * 1000.0,
+        inet_ntoa(m_address.sin_addr));
 
     if (!process_write(resp))
     {

@@ -30,7 +30,10 @@ set(SOURCES
     http/router.cpp
     http/response.cpp
     handler/health_handler.cpp
+    handler/metrics_handler.cpp
     handler/short_url_handler.cpp
+    observability/metrics_registry.cpp
+    observability/structured_logger.cpp
     shorturl/base62.cpp
     shorturl/bloom_filter.cpp
     shorturl/singleflight.cpp
