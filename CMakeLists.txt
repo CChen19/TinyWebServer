@@ -34,6 +34,7 @@ set(SOURCES
     shorturl/base62.cpp
     shorturl/bloom_filter.cpp
     shorturl/singleflight.cpp
+    shorturl/shard_router.cpp
     shorturl/snowflake.cpp
     shorturl/short_url_cache.cpp
     shorturl/short_url_repository.cpp

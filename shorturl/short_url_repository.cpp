@@ -1,6 +1,19 @@
 #include "short_url_repository.h"
+#include "shard_router.h"
 #include <mysql/errmsg.h>
 #include <mysql/mysqld_error.h>
+
+namespace {
+
+std::string short_url_table_for_code(const std::string& short_code) {
+    ShardRouter& router = ShardRouter::instance();
+    if (!router.enabled()) {
+        return "short_url";
+    }
+    return router.route_for_code(short_code).qualified_table;
+}
+
+} // namespace
 
 ShortUrlRepository::ShortUrlRepository(MYSQL* mysql) : mysql_(mysql) {}
 
@@ -11,7 +24,10 @@ ShortUrlRepository::create(const ShortUrlRecord& record, std::string* error) {
         return CreateStatus::DbError;
     }
 
-    std::string sql = "INSERT INTO short_url "
+    std::string sql = "INSERT INTO ";
+    sql += short_url_table_for_code(record.short_code);
+    sql += " ";
+    sql +=
         "(id, short_code, long_url, created_at, expire_at) VALUES (";
     sql += std::to_string(record.id);
     sql += ", ";
@@ -45,7 +61,9 @@ ShortUrlRepository::find_long_url(const std::string& code, std::string* long_url
         "SELECT long_url, "
         "IF(expire_at IS NOT NULL AND expire_at <= NOW(), 1, 0) AS expired, "
         "IF(expire_at IS NULL, 1, 0) AS cacheable "
-        "FROM short_url WHERE short_code = ";
+        "FROM ";
+    sql += short_url_table_for_code(code);
+    sql += " WHERE short_code = ";
     sql += quote(code);
     sql += " LIMIT 1";
 
@@ -88,29 +106,40 @@ bool ShortUrlRepository::list_active_codes(std::vector<std::string>* codes,
         return false;
     }
 
-    const char* sql =
-        "SELECT short_code FROM short_url "
-        "WHERE expire_at IS NULL OR expire_at > NOW()";
-
-    if (mysql_query(mysql_, sql) != 0) {
-        if (error) *error = mysql_error(mysql_);
-        return false;
-    }
-
-    MYSQL_RES* result = mysql_store_result(mysql_);
-    if (!result) {
-        if (error) *error = mysql_error(mysql_);
-        return false;
-    }
-
-    MYSQL_ROW row;
-    while ((row = mysql_fetch_row(result)) != nullptr) {
-        if (row[0] && codes) {
-            codes->push_back(row[0]);
+    std::vector<std::string> tables;
+    if (ShardRouter::instance().enabled()) {
+        for (const ShardRoute& route : ShardRouter::instance().all_routes()) {
+            tables.push_back(route.qualified_table);
         }
+    } else {
+        tables.push_back("short_url");
     }
 
-    mysql_free_result(result);
+    for (const std::string& table : tables) {
+        std::string sql =
+            "SELECT short_code FROM " + table +
+            " WHERE expire_at IS NULL OR expire_at > NOW()";
+
+        if (mysql_query(mysql_, sql.c_str()) != 0) {
+            if (error) *error = mysql_error(mysql_);
+            return false;
+        }
+
+        MYSQL_RES* result = mysql_store_result(mysql_);
+        if (!result) {
+            if (error) *error = mysql_error(mysql_);
+            return false;
+        }
+
+        MYSQL_ROW row;
+        while ((row = mysql_fetch_row(result)) != nullptr) {
+            if (row[0] && codes) {
+                codes->push_back(row[0]);
+            }
+        }
+
+        mysql_free_result(result);
+    }
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include "./handler/health_handler.h"
 #include "./handler/short_url_handler.h"
 #include "./shorturl/short_url_cache.h"
+#include "./shorturl/shard_router.h"
 
 int main(int argc, char *argv[])
 {
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
     if (!config.load(config_path))
         fprintf(stderr, "Config load failed, using defaults\n");
 
+    ShardRouter::instance().init(config);
     ShortUrlCache::instance().init(config);
     ClickEventProducer::instance().init(config);
     register_health_routes();

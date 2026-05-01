@@ -14,6 +14,9 @@ Config::Config()
       kafka_enabled(true), kafka_brokers("127.0.0.1:9092"),
       kafka_click_topic("shorturl.clicks"), kafka_message_timeout_ms(3000),
       kafka_linger_ms(5), kafka_retries(3),
+      sharding_enabled(true), shard_database_prefix("shorturl_"),
+      shard_table_prefix("short_url_"), shard_database_count(4),
+      shard_table_count(4),
       close_log(0)
 {}
 
@@ -75,6 +78,15 @@ bool Config::load(const std::string& path)
             if (k["message_timeout_ms"]) kafka_message_timeout_ms = k["message_timeout_ms"].as<int>();
             if (k["linger_ms"])          kafka_linger_ms          = k["linger_ms"].as<int>();
             if (k["retries"])            kafka_retries            = k["retries"].as<int>();
+        }
+
+        if (cfg["sharding"]) {
+            auto sh = cfg["sharding"];
+            if (sh["enabled"])         sharding_enabled     = sh["enabled"].as<bool>();
+            if (sh["database_prefix"]) shard_database_prefix = sh["database_prefix"].as<std::string>();
+            if (sh["table_prefix"])    shard_table_prefix    = sh["table_prefix"].as<std::string>();
+            if (sh["database_count"])  shard_database_count  = sh["database_count"].as<int>();
+            if (sh["table_count"])     shard_table_count     = sh["table_count"].as<int>();
         }
 
         return true;

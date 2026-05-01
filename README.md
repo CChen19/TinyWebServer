@@ -136,6 +136,20 @@ Phase 3 把点击统计从跳转主链路异步化：
 
 详细说明见 `docs/phase3_kafka_delivery.md`。
 
+Phase 4 分库分表
+----------
+
+Phase 4 为短链主表加入薄分片路由层：
+
+- C++ 自实现 `ShardRouter`，不依赖 Sharding-JDBC
+- 分片键：`short_code` 的稳定 hash，读路径可直接定位单分片
+- 默认布局：`4 库 × 4 表`
+- 路由：`hash(short_code) % (database_count * table_count)`
+- Repository 使用 `database.table` 进行 insert/select
+- 讨论重点：固定取模 vs 一致性 hash、扩容迁移、避免跨分片查询、长链去重的反向索引难题
+
+详细说明见 `docs/phase4_sharding.md`。
+
 项目结构
 ----------
 
@@ -164,15 +178,18 @@ TinyWebServer/
 │   ├── bloom_filter.{h,cpp}  # Bloom Filter 防穿透
 │   ├── singleflight.{h,cpp}  # 热点 key 互斥重建
 │   ├── short_url_cache.{h,cpp} # Redis Cache-Aside
+│   ├── shard_router.{h,cpp}  # 分库分表路由
 │   ├── snowflake.{h,cpp}     # 单机紧凑 Snowflake 发号器
 │   └── short_url_repository.{h,cpp} # MySQL 访问封装
 ├── sql/
 │   ├── 001_short_url.sql     # short_url 建表脚本
-│   └── 002_click_event.sql   # 点击事件表
+│   ├── 002_click_event.sql   # 点击事件表
+│   └── 003_sharded_short_url.sql # 分片库表初始化
 ├── docs/
 │   ├── phase1_baseline.md    # Phase 1 压测记录
 │   ├── phase2_cache_consistency.md # Phase 2 缓存一致性
-│   └── phase3_kafka_delivery.md # Phase 3 可靠投递
+│   ├── phase3_kafka_delivery.md # Phase 3 可靠投递
+│   └── phase4_sharding.md    # Phase 4 水平扩展
 ├── config/
 │   ├── config.{h,cpp}       # YAML 配置加载
 │   └── config.yaml           # 配置文件
@@ -248,6 +265,7 @@ SQL
 
 mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/001_short_url.sql
 mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/002_click_event.sql
+sudo mysql < sql/003_sharded_short_url.sql
 mysqladmin -h127.0.0.1 -ushorturl -pshorturl ping
 ```
 
@@ -322,6 +340,13 @@ kafka:
   message_timeout_ms: 3000
   linger_ms: 5
   retries: 3
+
+sharding:
+  enabled: true
+  database_prefix: "shorturl_"
+  table_prefix: "short_url_"
+  database_count: 4
+  table_count: 4
 ```
 
 ### 构建 & 运行

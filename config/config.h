@@ -43,6 +43,12 @@ public:
     int kafka_linger_ms;
     int kafka_retries;
 
+    bool sharding_enabled;
+    std::string shard_database_prefix;
+    std::string shard_table_prefix;
+    int shard_database_count;
+    int shard_table_count;
+
     int close_log;
 };
 

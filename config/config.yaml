@@ -38,3 +38,10 @@ kafka:
   message_timeout_ms: 3000
   linger_ms: 5
   retries: 3
+
+sharding:
+  enabled: true
+  database_prefix: "shorturl_"
+  table_prefix: "short_url_"
+  database_count: 4
+  table_count: 4
