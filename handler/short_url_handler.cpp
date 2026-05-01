@@ -1,4 +1,5 @@
 #include "short_url_handler.h"
+#include "../analytics/click_event_producer.h"
 #include "../http/router.h"
 #include "../shorturl/base62.h"
 #include "../shorturl/short_url_cache.h"
@@ -148,6 +149,7 @@ void redirect(const HttpRequest& req, HttpResponse& resp) {
     ShortUrlCache::CacheStatus cache_status =
         cache.get(code, &long_url, &cache_error);
     if (cache_status == ShortUrlCache::CacheStatus::Hit) {
+        ClickEventProducer::instance().publish_click(req, code);
         resp.set_status(302);
         resp.set_header("Location", long_url);
         resp.set_body("");
@@ -164,6 +166,7 @@ void redirect(const HttpRequest& req, HttpResponse& resp) {
 
     cache_status = cache.get(code, &long_url, &cache_error);
     if (cache_status == ShortUrlCache::CacheStatus::Hit) {
+        ClickEventProducer::instance().publish_click(req, code);
         resp.set_status(302);
         resp.set_header("Location", long_url);
         resp.set_body("");
@@ -182,6 +185,7 @@ void redirect(const HttpRequest& req, HttpResponse& resp) {
         } else {
             cache.add_legal_code(code);
         }
+        ClickEventProducer::instance().publish_click(req, code);
         resp.set_status(302);
         resp.set_header("Location", long_url);
         resp.set_body("");

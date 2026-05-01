@@ -11,6 +11,9 @@ Config::Config()
       redis_connect_timeout_ms(200), redis_socket_timeout_ms(200),
       cache_ttl_seconds(3600), cache_ttl_jitter_seconds(300),
       bloom_bits(1048576), bloom_hashes(7),
+      kafka_enabled(true), kafka_brokers("127.0.0.1:9092"),
+      kafka_click_topic("shorturl.clicks"), kafka_message_timeout_ms(3000),
+      kafka_linger_ms(5), kafka_retries(3),
       close_log(0)
 {}
 
@@ -62,6 +65,16 @@ bool Config::load(const std::string& path)
             if (c["ttl_jitter_seconds"]) cache_ttl_jitter_seconds = c["ttl_jitter_seconds"].as<int>();
             if (c["bloom_bits"])         bloom_bits               = c["bloom_bits"].as<int>();
             if (c["bloom_hashes"])       bloom_hashes             = c["bloom_hashes"].as<int>();
+        }
+
+        if (cfg["kafka"]) {
+            auto k = cfg["kafka"];
+            if (k["enabled"])            kafka_enabled            = k["enabled"].as<bool>();
+            if (k["brokers"])            kafka_brokers            = k["brokers"].as<std::string>();
+            if (k["click_topic"])        kafka_click_topic        = k["click_topic"].as<std::string>();
+            if (k["message_timeout_ms"]) kafka_message_timeout_ms = k["message_timeout_ms"].as<int>();
+            if (k["linger_ms"])          kafka_linger_ms          = k["linger_ms"].as<int>();
+            if (k["retries"])            kafka_retries            = k["retries"].as<int>();
         }
 
         return true;

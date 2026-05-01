@@ -1,6 +1,7 @@
 #include "./config/config.h"
 #include "webserver.h"
 #include "./CGImysql/sql_connection_pool.h"
+#include "./analytics/click_event_producer.h"
 #include "./handler/health_handler.h"
 #include "./handler/short_url_handler.h"
 #include "./shorturl/short_url_cache.h"
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Config load failed, using defaults\n");
 
     ShortUrlCache::instance().init(config);
+    ClickEventProducer::instance().init(config);
     register_health_routes();
     register_short_url_routes();
 

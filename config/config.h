@@ -36,6 +36,13 @@ public:
     int bloom_bits;
     int bloom_hashes;
 
+    bool kafka_enabled;
+    std::string kafka_brokers;
+    std::string kafka_click_topic;
+    int kafka_message_timeout_ms;
+    int kafka_linger_ms;
+    int kafka_retries;
+
     int close_log;
 };
 

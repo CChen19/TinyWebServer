@@ -121,11 +121,30 @@ Phase 2 在短链跳转链路上加入 Redis Cache-Aside 缓存：
 
 详细说明见 `docs/phase2_cache_consistency.md`。
 
+Phase 3 Kafka 异步化
+----------
+
+Phase 3 把点击统计从跳转主链路异步化：
+
+- C++ 服务接入 `librdkafka`
+- `GET /{code}` 成功跳转时只投递点击事件到 Kafka，不同步写点击 MySQL
+- Producer 可靠投递：`acks=all + enable.idempotence=true + retries`
+- Broker 生产配置：`min.insync.replicas >= 2`，通常配合 `replication.factor >= 3`
+- Consumer：独立 Python 进程，手动 commit，落库成功后提交 offset
+- 业务幂等：`click_event.event_id` 主键去重
+- 本地已用 Docker Kafka + librdkafka 跑通 producer → topic → consumer → MySQL 完整链路
+
+详细说明见 `docs/phase3_kafka_delivery.md`。
+
 项目结构
 ----------
 
 ```
 TinyWebServer/
+├── analytics/
+│   └── click_event_producer.{h,cpp} # Kafka 点击事件 producer
+├── consumer/
+│   └── click_consumer.py      # 独立点击事件 consumer
 ├── lock/                # 线程同步机制封装
 ├── log/                 # 同步/异步日志系统
 ├── timer/               # 定时器处理非活动连接
@@ -148,10 +167,12 @@ TinyWebServer/
 │   ├── snowflake.{h,cpp}     # 单机紧凑 Snowflake 发号器
 │   └── short_url_repository.{h,cpp} # MySQL 访问封装
 ├── sql/
-│   └── 001_short_url.sql     # short_url 建表脚本
+│   ├── 001_short_url.sql     # short_url 建表脚本
+│   └── 002_click_event.sql   # 点击事件表
 ├── docs/
 │   ├── phase1_baseline.md    # Phase 1 压测记录
-│   └── phase2_cache_consistency.md # Phase 2 缓存一致性
+│   ├── phase2_cache_consistency.md # Phase 2 缓存一致性
+│   └── phase3_kafka_delivery.md # Phase 3 可靠投递
 ├── config/
 │   ├── config.{h,cpp}       # YAML 配置加载
 │   └── config.yaml           # 配置文件
@@ -188,7 +209,7 @@ Phase 1 短链接口的压测记录统一维护在 `docs/phase1_baseline.md`。
 
 ```bash
 # Ubuntu / Debian
-sudo apt install -y build-essential cmake libmysqlclient-dev libyaml-cpp-dev mysql-server mysql-client redis-server libhiredis-dev
+sudo apt install -y build-essential cmake libmysqlclient-dev libyaml-cpp-dev mysql-server mysql-client redis-server libhiredis-dev librdkafka-dev python3-confluent-kafka python3-mysql.connector kafkacat
 ```
 
 Redis 缓存层依赖 `redis-plus-plus` 和 `hiredis`。如果本机未安装 `redis-plus-plus`，CMake 会以 DB-only fallback 模式构建；安装依赖后重新配置即可启用 Redis。
@@ -226,6 +247,7 @@ FLUSH PRIVILEGES;
 SQL
 
 mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/001_short_url.sql
+mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/002_click_event.sql
 mysqladmin -h127.0.0.1 -ushorturl -pshorturl ping
 ```
 
@@ -237,6 +259,33 @@ mysqladmin -h127.0.0.1 -ushorturl -pshorturl ping
 sudo service redis-server start
 redis-cli ping
 # PONG
+```
+
+### Kafka 启动
+
+本地开发可用 Docker 启动单节点 Kafka；生产环境应使用多 broker，并按 Phase 3 文档设置 `replication.factor >= 3` 和 `min.insync.replicas >= 2`。
+
+```bash
+docker run -d --name tinywebserver-kafka -p 9092:9092 \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+  -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092 \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+  apache/kafka:3.7.0
+
+docker exec tinywebserver-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server 127.0.0.1:9092 \
+  --create --if-not-exists \
+  --topic shorturl.clicks \
+  --partitions 3 \
+  --replication-factor 1
 ```
 
 ### 配置
@@ -265,6 +314,14 @@ cache:
   ttl_jitter_seconds: 300
   bloom_bits: 1048576
   bloom_hashes: 7
+
+kafka:
+  enabled: true
+  brokers: "127.0.0.1:9092"
+  click_topic: "shorturl.clicks"
+  message_timeout_ms: 3000
+  linger_ms: 5
+  retries: 3
 ```
 
 ### 构建 & 运行
@@ -276,6 +333,12 @@ cmake --build .
 cd ..
 ./build/server                    # 使用默认配置 config/config.yaml
 ./build/server /path/to/other.yaml  # 指定配置文件
+```
+
+启动点击事件 consumer：
+
+```bash
+python3 consumer/click_consumer.py
 ```
 
 ### 验证
@@ -293,6 +356,9 @@ curl -i http://localhost:9006/<short_code>
 
 redis-cli get shorturl:<short_code>
 # https://example.com
+
+mysql -h127.0.0.1 -ushorturl -pshorturl shorturl \
+  -e "SELECT event_id, short_code, user_agent FROM click_event ORDER BY consumed_at DESC LIMIT 5;"
 
 curl http://localhost:9006/notexist
 # {"error":"not found","path":"/notexist"}

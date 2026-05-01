@@ -10,6 +10,8 @@ find_package(yaml-cpp REQUIRED)
 find_path(REDIS_PLUS_PLUS_INCLUDE_DIR sw/redis++/redis++.h)
 find_library(REDIS_PLUS_PLUS_LIBRARY NAMES redis++)
 find_library(HIREDIS_LIBRARY NAMES hiredis)
+find_path(RDKAFKA_INCLUDE_DIR librdkafka/rdkafka.h)
+find_library(RDKAFKA_LIBRARY NAMES rdkafka)
 
 include_directories(
     ${PROJECT_SOURCE_DIR}
@@ -19,6 +21,7 @@ include_directories(
 set(SOURCES
     main.cpp
     webserver.cpp
+    analytics/click_event_producer.cpp
     config/config.cpp
     log/log.cpp
     CGImysql/sql_connection_pool.cpp
@@ -47,6 +50,14 @@ if (REDIS_PLUS_PLUS_INCLUDE_DIR AND REDIS_PLUS_PLUS_LIBRARY AND HIREDIS_LIBRARY)
     )
 else()
     message(WARNING "redis-plus-plus or hiredis not found; Redis cache layer will build in DB-only fallback mode")
+endif()
+
+if (RDKAFKA_INCLUDE_DIR AND RDKAFKA_LIBRARY)
+    target_compile_definitions(server PRIVATE HAVE_RDKAFKA)
+    target_include_directories(server PRIVATE ${RDKAFKA_INCLUDE_DIR})
+    target_link_libraries(server ${RDKAFKA_LIBRARY})
+else()
+    message(WARNING "librdkafka not found; Kafka click producer will build in no-op fallback mode")
 endif()
 
 target_link_libraries(server

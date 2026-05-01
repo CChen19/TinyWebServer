@@ -30,3 +30,11 @@ cache:
   ttl_jitter_seconds: 300
   bloom_bits: 1048576
   bloom_hashes: 7
+
+kafka:
+  enabled: true
+  brokers: "127.0.0.1:9092"
+  click_topic: "shorturl.clicks"
+  message_timeout_ms: 3000
+  linger_ms: 5
+  retries: 3

@@ -10,6 +10,7 @@ endif
 
 SOURCES := main.cpp \
 	webserver.cpp \
+	analytics/click_event_producer.cpp \
 	config/config.cpp \
 	log/log.cpp \
 	CGImysql/sql_connection_pool.cpp \
