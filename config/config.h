@@ -27,6 +27,15 @@ public:
     std::string mysql_database;
     int mysql_pool_size;
 
+    bool redis_enabled;
+    std::string redis_uri;
+    int redis_connect_timeout_ms;
+    int redis_socket_timeout_ms;
+    int cache_ttl_seconds;
+    int cache_ttl_jitter_seconds;
+    int bloom_bits;
+    int bloom_hashes;
+
     int close_log;
 };
 

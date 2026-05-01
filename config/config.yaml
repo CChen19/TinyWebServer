@@ -14,7 +14,19 @@ log:
 mysql:
   host: "127.0.0.1"
   port: 3306
-  user: "root"
-  password: "root"
+  user: "shorturl"
+  password: "shorturl"
   database: "shorturl"
   pool_size: 8
+
+redis:
+  enabled: true
+  uri: "tcp://127.0.0.1:6379"
+  connect_timeout_ms: 200
+  socket_timeout_ms: 200
+
+cache:
+  ttl_seconds: 3600
+  ttl_jitter_seconds: 300
+  bloom_bits: 1048576
+  bloom_hashes: 7

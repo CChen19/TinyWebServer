@@ -7,6 +7,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_path(REDIS_PLUS_PLUS_INCLUDE_DIR sw/redis++/redis++.h)
+find_library(REDIS_PLUS_PLUS_LIBRARY NAMES redis++)
+find_library(HIREDIS_LIBRARY NAMES hiredis)
 
 include_directories(
     ${PROJECT_SOURCE_DIR}
@@ -26,11 +29,25 @@ set(SOURCES
     handler/health_handler.cpp
     handler/short_url_handler.cpp
     shorturl/base62.cpp
+    shorturl/bloom_filter.cpp
+    shorturl/singleflight.cpp
     shorturl/snowflake.cpp
+    shorturl/short_url_cache.cpp
     shorturl/short_url_repository.cpp
 )
 
 add_executable(server ${SOURCES})
+
+if (REDIS_PLUS_PLUS_INCLUDE_DIR AND REDIS_PLUS_PLUS_LIBRARY AND HIREDIS_LIBRARY)
+    target_compile_definitions(server PRIVATE HAVE_REDIS_PLUS_PLUS)
+    target_include_directories(server PRIVATE ${REDIS_PLUS_PLUS_INCLUDE_DIR})
+    target_link_libraries(server
+        ${REDIS_PLUS_PLUS_LIBRARY}
+        ${HIREDIS_LIBRARY}
+    )
+else()
+    message(WARNING "redis-plus-plus or hiredis not found; Redis cache layer will build in DB-only fallback mode")
+endif()
 
 target_link_libraries(server
     Threads::Threads

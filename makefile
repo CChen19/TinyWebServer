@@ -20,7 +20,10 @@ SOURCES := main.cpp \
 	handler/health_handler.cpp \
 	handler/short_url_handler.cpp \
 	shorturl/base62.cpp \
+	shorturl/bloom_filter.cpp \
+	shorturl/singleflight.cpp \
 	shorturl/snowflake.cpp \
+	shorturl/short_url_cache.cpp \
 	shorturl/short_url_repository.cpp
 
 server: $(SOURCES)

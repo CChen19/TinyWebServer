@@ -4,6 +4,7 @@
 #include <mysql/mysql.h>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 struct ShortUrlRecord {
     uint64_t id = 0;
@@ -31,7 +32,9 @@ public:
 
     CreateStatus create(const ShortUrlRecord& record, std::string* error = nullptr);
     FindStatus find_long_url(const std::string& code, std::string* long_url,
-                             std::string* error = nullptr);
+                             std::string* error = nullptr,
+                             bool* cacheable = nullptr);
+    bool list_active_codes(std::vector<std::string>* codes, std::string* error = nullptr);
 
 private:
     std::string quote(const std::string& value) const;

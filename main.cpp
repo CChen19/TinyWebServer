@@ -1,7 +1,9 @@
 #include "./config/config.h"
 #include "webserver.h"
+#include "./CGImysql/sql_connection_pool.h"
 #include "./handler/health_handler.h"
 #include "./handler/short_url_handler.h"
+#include "./shorturl/short_url_cache.h"
 
 int main(int argc, char *argv[])
 {
@@ -14,6 +16,7 @@ int main(int argc, char *argv[])
     if (!config.load(config_path))
         fprintf(stderr, "Config load failed, using defaults\n");
 
+    ShortUrlCache::instance().init(config);
     register_health_routes();
     register_short_url_routes();
 
@@ -22,6 +25,7 @@ int main(int argc, char *argv[])
 
     server.log_write();
     server.sql_pool();
+    ShortUrlCache::instance().warmup(connection_pool::GetInstance());
     server.thread_pool();
     server.trig_mode();
     server.eventListen();

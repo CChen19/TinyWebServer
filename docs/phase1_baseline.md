@@ -16,7 +16,7 @@
 ## 准备数据
 
 ```bash
-mysql -uroot -proot shorturl < sql/001_short_url.sql
+mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/001_short_url.sql
 
 curl -sS -X POST http://127.0.0.1:9006/api/shorten \
   -H 'Content-Type: application/json' \

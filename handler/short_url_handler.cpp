@@ -1,6 +1,7 @@
 #include "short_url_handler.h"
 #include "../http/router.h"
 #include "../shorturl/base62.h"
+#include "../shorturl/short_url_cache.h"
 #include "../shorturl/short_url_repository.h"
 #include "../shorturl/snowflake.h"
 #include <nlohmann/json.hpp>
@@ -106,6 +107,12 @@ void shorten(const HttpRequest& req, HttpResponse& resp) {
 
         ShortUrlRepository::CreateStatus status = repo.create(record, &db_error);
         if (status == ShortUrlRepository::CreateStatus::Ok) {
+            if (expire_at.empty()) {
+                ShortUrlCache::instance().set(record.short_code, long_url);
+            } else {
+                ShortUrlCache::instance().add_legal_code(record.short_code);
+            }
+
             resp.set_status(201);
             nlohmann::json body = {
                 {"short_code", record.short_code},
@@ -133,19 +140,55 @@ void redirect(const HttpRequest& req, HttpResponse& resp) {
         return;
     }
 
-    ShortUrlRepository repo(req.mysql);
+    const std::string code = it->second;
+    ShortUrlCache& cache = ShortUrlCache::instance();
     std::string long_url;
+    std::string cache_error;
+
+    ShortUrlCache::CacheStatus cache_status =
+        cache.get(code, &long_url, &cache_error);
+    if (cache_status == ShortUrlCache::CacheStatus::Hit) {
+        resp.set_status(302);
+        resp.set_header("Location", long_url);
+        resp.set_body("");
+        return;
+    }
+    if (cache_status == ShortUrlCache::CacheStatus::Filtered) {
+        resp.set_status(404);
+        resp.set_json({{"error", "short url not found"}});
+        return;
+    }
+
+    std::shared_ptr<std::mutex> rebuild_lock = cache.rebuild_mutex(code);
+    std::lock_guard<std::mutex> guard(*rebuild_lock);
+
+    cache_status = cache.get(code, &long_url, &cache_error);
+    if (cache_status == ShortUrlCache::CacheStatus::Hit) {
+        resp.set_status(302);
+        resp.set_header("Location", long_url);
+        resp.set_body("");
+        return;
+    }
+
+    ShortUrlRepository repo(req.mysql);
     std::string db_error;
+    bool cacheable = false;
     ShortUrlRepository::FindStatus status =
-        repo.find_long_url(it->second, &long_url, &db_error);
+        repo.find_long_url(code, &long_url, &db_error, &cacheable);
 
     if (status == ShortUrlRepository::FindStatus::Ok) {
+        if (cacheable) {
+            cache.set(code, long_url);
+        } else {
+            cache.add_legal_code(code);
+        }
         resp.set_status(302);
         resp.set_header("Location", long_url);
         resp.set_body("");
         return;
     }
     if (status == ShortUrlRepository::FindStatus::Expired) {
+        cache.erase(code);
         resp.set_status(410);
         resp.set_json({{"error", "short url expired"}});
         return;

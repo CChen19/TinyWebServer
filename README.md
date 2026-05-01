@@ -53,7 +53,7 @@ Phase 1 单机短链
 初始化脚本：
 
 ```bash
-mysql -uroot -proot shorturl < sql/001_short_url.sql
+mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/001_short_url.sql
 ```
 
 核心表：
@@ -106,6 +106,21 @@ curl -i http://localhost:9006/abc1234
 # Location: https://example.com/a/very/long/url
 ```
 
+Phase 2 Redis 缓存层
+----------
+
+Phase 2 在短链跳转链路上加入 Redis Cache-Aside 缓存：
+
+- Redis client：`redis-plus-plus`
+- 读路径：Bloom Filter → Redis → singleflight → MySQL → Redis
+- 写路径：MySQL 成功后更新 Bloom Filter，并尝试写 Redis
+- 穿透防护：启动时预热合法 `short_code` 集合到 Bloom Filter
+- 击穿防护：热点 code 使用 per-code 互斥锁重建缓存
+- 雪崩防护：Redis TTL 增加随机抖动
+- 一致性：短链创建后几乎 immutable，Cache-Aside 足够；禁用/过期类写路径需要延时双删，进阶可用 Canal 订阅 binlog 异步刷新缓存
+
+详细说明见 `docs/phase2_cache_consistency.md`。
+
 项目结构
 ----------
 
@@ -127,12 +142,16 @@ TinyWebServer/
 │   └── short_url_handler.{h,cpp}# 短链创建与跳转
 ├── shorturl/
 │   ├── base62.{h,cpp}        # Base62 编码
+│   ├── bloom_filter.{h,cpp}  # Bloom Filter 防穿透
+│   ├── singleflight.{h,cpp}  # 热点 key 互斥重建
+│   ├── short_url_cache.{h,cpp} # Redis Cache-Aside
 │   ├── snowflake.{h,cpp}     # 单机紧凑 Snowflake 发号器
 │   └── short_url_repository.{h,cpp} # MySQL 访问封装
 ├── sql/
 │   └── 001_short_url.sql     # short_url 建表脚本
 ├── docs/
-│   └── phase1_baseline.md    # Phase 1 压测记录
+│   ├── phase1_baseline.md    # Phase 1 压测记录
+│   └── phase2_cache_consistency.md # Phase 2 缓存一致性
 ├── config/
 │   ├── config.{h,cpp}       # YAML 配置加载
 │   └── config.yaml           # 配置文件
@@ -169,7 +188,55 @@ Phase 1 短链接口的压测记录统一维护在 `docs/phase1_baseline.md`。
 
 ```bash
 # Ubuntu / Debian
-sudo apt install -y build-essential cmake libmysqlclient-dev libyaml-cpp-dev
+sudo apt install -y build-essential cmake libmysqlclient-dev libyaml-cpp-dev mysql-server mysql-client redis-server libhiredis-dev
+```
+
+Redis 缓存层依赖 `redis-plus-plus` 和 `hiredis`。如果本机未安装 `redis-plus-plus`，CMake 会以 DB-only fallback 模式构建；安装依赖后重新配置即可启用 Redis。
+
+`redis-plus-plus` 可从源码安装：
+
+```bash
+cd /tmp
+git clone https://github.com/sewenew/redis-plus-plus.git
+cd redis-plus-plus
+mkdir -p build && cd build
+cmake .. -DREDIS_PLUS_PLUS_CXX_STANDARD=14
+make -j
+sudo make install
+sudo ldconfig
+```
+
+### MySQL 初始化
+
+Ubuntu/WSL 下 `root@localhost` 常使用 `auth_socket`，项目不要用 root 账号连库。建议创建专用应用用户：
+
+```bash
+sudo service mysql start
+
+sudo mysql <<'SQL'
+CREATE DATABASE IF NOT EXISTS shorturl DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'shorturl'@'localhost' IDENTIFIED BY 'shorturl';
+CREATE USER IF NOT EXISTS 'shorturl'@'127.0.0.1' IDENTIFIED BY 'shorturl';
+
+GRANT ALL PRIVILEGES ON shorturl.* TO 'shorturl'@'localhost';
+GRANT ALL PRIVILEGES ON shorturl.* TO 'shorturl'@'127.0.0.1';
+
+FLUSH PRIVILEGES;
+SQL
+
+mysql -h127.0.0.1 -ushorturl -pshorturl shorturl < sql/001_short_url.sql
+mysqladmin -h127.0.0.1 -ushorturl -pshorturl ping
+```
+
+所有项目命令都显式使用 `127.0.0.1`，避免 MySQL 客户端默认走 `/var/run/mysqld/mysqld.sock` 时被本机 socket 权限影响。
+
+### Redis 启动
+
+```bash
+sudo service redis-server start
+redis-cli ping
+# PONG
 ```
 
 ### 配置
@@ -184,10 +251,20 @@ server:
 mysql:
   host: "127.0.0.1"
   port: 3306
-  user: "root"
-  password: "root"
+  user: "shorturl"
+  password: "shorturl"
   database: "shorturl"
   pool_size: 8
+
+redis:
+  enabled: true
+  uri: "tcp://127.0.0.1:6379"
+
+cache:
+  ttl_seconds: 3600
+  ttl_jitter_seconds: 300
+  bloom_bits: 1048576
+  bloom_hashes: 7
 ```
 
 ### 构建 & 运行
@@ -210,6 +287,12 @@ curl http://localhost:9006/health
 curl -X POST http://localhost:9006/api/shorten \
   -H 'Content-Type: application/json' \
   -d '{"long_url":"https://example.com"}'
+
+curl -i http://localhost:9006/<short_code>
+# HTTP/1.1 302 Found
+
+redis-cli get shorturl:<short_code>
+# https://example.com
 
 curl http://localhost:9006/notexist
 # {"error":"not found","path":"/notexist"}

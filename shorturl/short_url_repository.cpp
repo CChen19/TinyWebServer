@@ -35,7 +35,7 @@ ShortUrlRepository::create(const ShortUrlRecord& record, std::string* error) {
 
 ShortUrlRepository::FindStatus
 ShortUrlRepository::find_long_url(const std::string& code, std::string* long_url,
-                                  std::string* error) {
+                                  std::string* error, bool* cacheable) {
     if (!mysql_) {
         if (error) *error = "mysql connection unavailable";
         return FindStatus::DbError;
@@ -43,7 +43,8 @@ ShortUrlRepository::find_long_url(const std::string& code, std::string* long_url
 
     std::string sql =
         "SELECT long_url, "
-        "IF(expire_at IS NOT NULL AND expire_at <= NOW(), 1, 0) AS expired "
+        "IF(expire_at IS NOT NULL AND expire_at <= NOW(), 1, 0) AS expired, "
+        "IF(expire_at IS NULL, 1, 0) AS cacheable "
         "FROM short_url WHERE short_code = ";
     sql += quote(code);
     sql += " LIMIT 1";
@@ -73,8 +74,44 @@ ShortUrlRepository::find_long_url(const std::string& code, std::string* long_url
     if (long_url) {
         *long_url = row[0] ? row[0] : "";
     }
+    if (cacheable) {
+        *cacheable = row[2] && std::string(row[2]) == "1";
+    }
     mysql_free_result(result);
     return FindStatus::Ok;
+}
+
+bool ShortUrlRepository::list_active_codes(std::vector<std::string>* codes,
+                                           std::string* error) {
+    if (!mysql_) {
+        if (error) *error = "mysql connection unavailable";
+        return false;
+    }
+
+    const char* sql =
+        "SELECT short_code FROM short_url "
+        "WHERE expire_at IS NULL OR expire_at > NOW()";
+
+    if (mysql_query(mysql_, sql) != 0) {
+        if (error) *error = mysql_error(mysql_);
+        return false;
+    }
+
+    MYSQL_RES* result = mysql_store_result(mysql_);
+    if (!result) {
+        if (error) *error = mysql_error(mysql_);
+        return false;
+    }
+
+    MYSQL_ROW row;
+    while ((row = mysql_fetch_row(result)) != nullptr) {
+        if (row[0] && codes) {
+            codes->push_back(row[0]);
+        }
+    }
+
+    mysql_free_result(result);
+    return true;
 }
 
 std::string ShortUrlRepository::quote(const std::string& value) const {
