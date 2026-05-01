@@ -1,4 +1,4 @@
-# TinyWebServer Short URL
+# C++ URL Shortener System
 
 A production-style C++ short URL service evolved from the classic TinyWebServer project.
 
