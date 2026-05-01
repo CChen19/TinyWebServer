@@ -1,6 +1,7 @@
 #include "./config/config.h"
 #include "webserver.h"
 #include "./handler/health_handler.h"
+#include "./handler/short_url_handler.h"
 
 int main(int argc, char *argv[])
 {
@@ -14,6 +15,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Config load failed, using defaults\n");
 
     register_health_routes();
+    register_short_url_routes();
 
     WebServer server;
     server.init(config);

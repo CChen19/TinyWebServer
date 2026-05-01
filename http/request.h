@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <mysql/mysql.h>
 
 struct HttpRequest {
     std::string method;        // "GET" / "POST"
@@ -13,6 +14,9 @@ struct HttpRequest {
     
     // 路径参数（由 Router 填充，比如 /{code} 匹配后 params["code"] = "abc123"）
     std::unordered_map<std::string, std::string> params;
+
+    // 当前请求绑定的 MySQL 连接，由 http_conn 在线程池中注入。
+    MYSQL* mysql = nullptr;
 };
 
 #endif

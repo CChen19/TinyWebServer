@@ -45,6 +45,67 @@ Phase 0 重构变更
 
 lock/、log/、timer/、threadpool/、CGImysql/sql_connection_pool.h、epoll 事件循环、Reactor/Proactor 切换
 
+Phase 1 单机短链
+----------
+
+### 数据表
+
+初始化脚本：
+
+```bash
+mysql -uroot -proot shorturl < sql/001_short_url.sql
+```
+
+核心表：
+
+```sql
+CREATE TABLE IF NOT EXISTS short_url (
+    id BIGINT UNSIGNED NOT NULL,
+    short_code VARCHAR(16) NOT NULL,
+    long_url TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expire_at DATETIME NULL DEFAULT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_short_code (short_code),
+    KEY idx_expire_at (expire_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### 短码生成
+
+当前实现：单机紧凑 Snowflake ID → Base62。
+
+- ID 结构：`29 bit timestamp_seconds_since_2026_01_01 + 12 bit sequence`
+- 单机容量：约 17 年，每秒最多 4096 个短码
+- Base62：`62^7 = 3,521,614,606,208`，7 位可表达约 3.5 万亿个编号
+- MySQL 仍对 `short_code` 建唯一索引，极端碰撞时最多重试 3 次
+
+三种生成方案 trade-off：
+
+| 方案 | 优点 | 缺点 | 适用阶段 |
+|------|------|------|----------|
+| Snowflake + Base62 | 无中心化自增依赖；短码生成在应用内完成；天然按时间递增；后续可扩展 worker bit | 需要处理时钟回拨和序列耗尽；ID 结构要提前规划 | 当前 Phase 1，后续可平滑扩展 |
+| MySQL 自增 + Base62 | 实现最简单；强一致；不需要额外组件 | 每次生成都依赖 DB insert/自增；数据库成为发号瓶颈；多库分片后迁移成本高 | Demo 或低 QPS 单库 |
+| Redis INCR + Base62 | 性能高；实现简单；适合多实例共享计数器 | 引入 Redis 可用性和持久化问题；计数器恢复/主从切换要谨慎；仍是中心化发号 | 中期多实例但尚未分片 |
+
+### 接口
+
+创建短链：
+
+```bash
+curl -X POST http://localhost:9006/api/shorten \
+  -H 'Content-Type: application/json' \
+  -d '{"long_url":"https://example.com/a/very/long/url","expire_at":"2026-12-31 23:59:59"}'
+```
+
+跳转：
+
+```bash
+curl -i http://localhost:9006/abc1234
+# HTTP/1.1 302 Found
+# Location: https://example.com/a/very/long/url
+```
+
 项目结构
 ----------
 
@@ -62,7 +123,16 @@ TinyWebServer/
 │   └── response.{h,cpp}     # 响应构造
 ├── handler/
 │   ├── handler_base.h        # Handler 基础定义
-│   └── health_handler.{h,cpp}# /health 端点
+│   ├── health_handler.{h,cpp}# /health 端点
+│   └── short_url_handler.{h,cpp}# 短链创建与跳转
+├── shorturl/
+│   ├── base62.{h,cpp}        # Base62 编码
+│   ├── snowflake.{h,cpp}     # 单机紧凑 Snowflake 发号器
+│   └── short_url_repository.{h,cpp} # MySQL 访问封装
+├── sql/
+│   └── 001_short_url.sql     # short_url 建表脚本
+├── docs/
+│   └── phase1_baseline.md    # Phase 1 压测记录
 ├── config/
 │   ├── config.{h,cpp}       # YAML 配置加载
 │   └── config.yaml           # 配置文件
@@ -89,6 +159,8 @@ TinyWebServer/
 | 5,000  | 309,660         | 630 KB/s  | 51,610  | 0    |
 
 > 所有请求 0 失败。并发从 500→5000 时 QPS 稳步上升（/health 无 IO，瓶颈在 epoll 事件分发），此数据作为 Phase 1/2/3 架构演进的性能基线。
+
+Phase 1 短链接口的压测记录统一维护在 `docs/phase1_baseline.md`。
 
 快速运行
 ----------
@@ -134,6 +206,10 @@ cd ..
 ```bash
 curl http://localhost:9006/health
 # {"status":"ok","version":"0.1.0"}
+
+curl -X POST http://localhost:9006/api/shorten \
+  -H 'Content-Type: application/json' \
+  -d '{"long_url":"https://example.com"}'
 
 curl http://localhost:9006/notexist
 # {"error":"not found","path":"/notexist"}

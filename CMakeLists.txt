@@ -24,6 +24,10 @@ set(SOURCES
     http/router.cpp
     http/response.cpp
     handler/health_handler.cpp
+    handler/short_url_handler.cpp
+    shorturl/base62.cpp
+    shorturl/snowflake.cpp
+    shorturl/short_url_repository.cpp
 )
 
 add_executable(server ${SOURCES})

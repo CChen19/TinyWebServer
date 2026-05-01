@@ -417,6 +417,7 @@ void http_conn::process()
     }
     else
     {
+        m_request.mysql = mysql;
         if (!Router::instance().dispatch(m_request, resp))
         {
             resp.set_status(404);
